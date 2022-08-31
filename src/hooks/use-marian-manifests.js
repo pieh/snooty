@@ -3,6 +3,7 @@ import { useSiteMetadata } from './use-site-metadata';
 import { parseMarianManifests } from '../utils/parse-marian-manifests';
 import { MARIAN_URL } from '../constants';
 import { fetchSearchPropertyMapping } from '../utils/realm';
+import mockData from '../test-manifest.json';
 
 // Fetches manifests for search results and the mapping between search properties and their category/version names.
 export const useMarianManifests = () => {
@@ -12,9 +13,14 @@ export const useMarianManifests = () => {
 
   useEffect(() => {
     async function fetchManifests(propertyMapping) {
-      const result = await fetch(MARIAN_URL + `status`);
-      const jsonResult = await result.json();
-      setFilters(parseMarianManifests(jsonResult.manifests, propertyMapping));
+      try {
+        const result = await fetch(MARIAN_URL + `status`);
+        const jsonResult = await result.json();
+        setFilters(parseMarianManifests(jsonResult.manifests, propertyMapping));
+      } catch (e) {
+        console.log('err at fetchManifests ', e);
+        setFilters(parseMarianManifests(mockData.manifests, propertyMapping));
+      }
     }
     const fetchMapping = async () => {
       let mapping = {};

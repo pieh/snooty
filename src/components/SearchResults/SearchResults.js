@@ -21,6 +21,7 @@ import EmptyResults, { EMPTY_STATE_HEIGHT } from './EmptyResults';
 import { useMarianManifests } from '../../hooks/use-marian-manifests';
 import Tag, { searchTagStyle } from '../Tag';
 import 'react-loading-skeleton/dist/skeleton.css';
+import mockData from '../../test-search.json';
 
 const DESKTOP_COLUMN_GAP = '46px';
 const FILTER_COLUMN_WIDTH = '173px';
@@ -282,11 +283,21 @@ const SearchResults = () => {
   useEffect(() => {
     const fetchNewSearchResults = async () => {
       if (searchTerm) {
-        const result = await fetch(searchParamsToURL(searchTerm, searchFilter));
-        const resultJson = await result.json();
-        if (!!resultJson?.results) {
-          setSearchResults(getSearchbarResultsFromJSON(resultJson, searchPropertyMapping));
+        try {
+          const result = await fetch(searchParamsToURL(searchTerm, searchFilter));
+          const resultJson = await result.json();
+          if (!!resultJson?.results) {
+            setSearchResults(getSearchbarResultsFromJSON(resultJson, searchPropertyMapping));
+          }
+          setSearchFinished(true);
+        } catch (e) {
+          console.log('caught error ');
+          console.log(e);
+          setSearchResults(getSearchbarResultsFromJSON(mockData, searchPropertyMapping));
+          setSearchFinished(true);
         }
+      } else {
+        setSearchResults(getSearchbarResultsFromJSON(mockData, searchPropertyMapping));
         setSearchFinished(true);
       }
     };
@@ -357,7 +368,7 @@ const SearchResults = () => {
                     />
                   ))}
                 </StyledSearchResults>
-                <FiltersContainer>
+                <FiltersContainer className="filters-container">
                   <FilterHeader>{specifySearchText}</FilterHeader>
                   <StyledSearchFilters />
                 </FiltersContainer>
