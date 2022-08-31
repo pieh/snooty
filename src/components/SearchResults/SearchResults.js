@@ -274,7 +274,7 @@ const SearchResults = () => {
   useEffect(() => {
     setFirstRenderComplete(true);
     const { q, searchProperty } = queryString.parse(search);
-    setSearchTerm(q);
+    setSearchTerm(q || 'test');
     setSearchFilter(searchProperty);
   }, [search]);
 
@@ -297,6 +297,7 @@ const SearchResults = () => {
           setSearchFinished(true);
         }
       } else {
+        console.log('no search term');
         setSearchResults(getSearchbarResultsFromJSON(mockData, searchPropertyMapping));
         setSearchFinished(true);
       }
