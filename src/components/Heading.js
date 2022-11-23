@@ -11,10 +11,11 @@ import ConditionalWrapper from './ConditionalWrapper';
 import Contents from './Contents';
 import Permalink from './Permalink';
 import { H2, H3, Subtitle, Body } from '@leafygreen-ui/typography';
+import { css as emotionCss } from '@emotion/react';
 
 const FeedbackHeading = Loadable(() => import('./Widgets/FeedbackWidget/FeedbackHeading'));
 
-const StyledH2 = styled(H2)`
+const h2Styling = css`
   margin-top: 16px;
   margin-bottom: 24px;
 `;
@@ -24,9 +25,36 @@ const headingStyles = css`
   margin-bottom: 8px;
 `;
 
+const HeadingContainer = styled.div`
+  display: flex;
+  flex-direction: ${(props) => (props.stackVertically ? 'column' : 'row')};
+  justify-content: space-between;
+`;
+
+const ChildContainer = styled.div(
+  ({ isStacked }) => css`
+    ${isStacked && 'margin: 4px 0 16px 0;'}
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: ${isStacked ? 'flex-start' : 'center'};
+  `
+);
+
+// sample emotion style
+const emotionStyle = emotionCss`
+  border-top 1px solid black;
+`;
+
+// sample styled
+const StyledHeader = styled(H2)`
+  margin-top: 10px;
+  margin-bottom: 10px;
+`;
+
 const determineHeading = (sectionDepth) => {
   if (sectionDepth === 1) {
-    return StyledH2;
+    return H2;
   } else if (sectionDepth === 2) {
     return H3;
   } else if (sectionDepth === 3) {
@@ -59,33 +87,24 @@ const Heading = ({ sectionDepth, nodeData, page, ...rest }) => {
           </HeadingContainer>
         )}
       >
-        <HeadingTag className={cx(headingStyles, 'contains-headerlink')} as={asHeading} weight="medium">
+        <HeadingTag
+          css={emotionStyle}
+          className={cx(headingStyles, 'contains-headerlink', sectionDepth === 1 ? h2Styling : '')}
+          as={asHeading}
+          weight="medium"
+        >
           {nodeData.children.map((element, index) => {
             return <ComponentFactory {...rest} nodeData={element} key={index} />;
           })}
           <Permalink id={id} description="heading" />
         </HeadingTag>
+
+        {sectionDepth > 1 && <StyledHeader>this is styled LG header</StyledHeader>}
       </ConditionalWrapper>
       {isPageTitle && <Contents />}
     </>
   );
 };
-
-const HeadingContainer = styled.div`
-  display: flex;
-  flex-direction: ${(props) => (props.stackVertically ? 'column' : 'row')};
-  justify-content: space-between;
-`;
-
-const ChildContainer = styled.div(
-  ({ isStacked }) => css`
-    ${isStacked && 'margin: 4px 0 16px 0;'}
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: ${isStacked ? 'flex-start' : 'center'};
-  `
-);
 
 Heading.propTypes = {
   sectionDepth: PropTypes.number.isRequired,
