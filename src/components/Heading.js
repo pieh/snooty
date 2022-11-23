@@ -43,7 +43,7 @@ const ChildContainer = styled.div(
 
 // sample emotion style
 const emotionStyle = emotionCss`
-  border-top 1px solid black;
+  border-top: 1px solid black;
 `;
 
 // sample styled
