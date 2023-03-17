@@ -114,7 +114,6 @@ const DefaultLayout = ({
               slug={slug}
               toctree={toctree}
               eol={eol}
-              isInPresentationMode={isInPresentationMode}
             />
           )}
           <ContentTransition slug={slug}>{children}</ContentTransition>

@@ -109,7 +109,7 @@ const DocumentBody = (props) => {
       <SEO pageTitle={pageTitle} siteTitle={siteTitle} />
       <ConditionalWrapper
         condition={!isInPresentationMode}
-        wrapper={
+        wrapper={(children) => (
           <Widgets
             location={location}
             pageOptions={page?.options}
@@ -118,9 +118,9 @@ const DocumentBody = (props) => {
             slug={slug}
             isInPresentationMode={isInPresentationMode}
           >
-            <FootnoteContext.Provider value={{ footnotes }}></FootnoteContext.Provider>
+            <FootnoteContext.Provider value={{ footnotes }}>{children}</FootnoteContext.Provider>
           </Widgets>
-        }
+        )}
         children={
           <Template {...props}>
             {pageNodes.map((child, index) => (
