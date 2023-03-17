@@ -11,6 +11,7 @@ import Widgets from './Widgets';
 import SEO from './SEO';
 import FootnoteContext from './Footnote/footnote-context';
 import ComponentFactory from './ComponentFactory';
+import ConditionalWrapper from './ConditionalWrapper';
 
 // Modify the AST so that the node modified by cssclass is included in its "children" array.
 // Delete this modified node from its original location.
@@ -106,22 +107,28 @@ const DocumentBody = (props) => {
   return (
     <>
       <SEO pageTitle={pageTitle} siteTitle={siteTitle} />
-      <Widgets
-        location={location}
-        pageOptions={page?.options}
-        pageTitle={pageTitle}
-        publishedBranches={getNestedValue(['publishedBranches'], metadata)}
-        slug={slug}
-        isInPresentationMode={isInPresentationMode}
-      >
-        <FootnoteContext.Provider value={{ footnotes }}>
+      <ConditionalWrapper
+        condition={!isInPresentationMode}
+        wrapper={
+          <Widgets
+            location={location}
+            pageOptions={page?.options}
+            pageTitle={pageTitle}
+            publishedBranches={getNestedValue(['publishedBranches'], metadata)}
+            slug={slug}
+            isInPresentationMode={isInPresentationMode}
+          >
+            <FootnoteContext.Provider value={{ footnotes }}></FootnoteContext.Provider>
+          </Widgets>
+        }
+        children={
           <Template {...props}>
             {pageNodes.map((child, index) => (
               <ComponentFactory key={index} metadata={metadata} nodeData={child} page={page} slug={slug} />
             ))}
           </Template>
-        </FootnoteContext.Provider>
-      </Widgets>
+        }
+      ></ConditionalWrapper>
       {!isInPresentationMode && <UnifiedFooter hideLocale={true} />}
     </>
   );

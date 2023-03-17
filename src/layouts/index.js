@@ -102,7 +102,7 @@ const DefaultLayout = ({
       >
         <GlobalGrid>
           {!isInPresentationMode && <Header sidenav={sidenav} eol={eol} />}
-          {sidenav && (
+          {sidenav && !isInPresentationMode && (
             <Sidenav
               chapters={chapters}
               guides={guides}
