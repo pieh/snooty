@@ -1,363 +1,136 @@
 const path = require('path');
+const stream = require('stream');
+const { promisify } = require('util');
+const fs = require('fs').promises;
 const { transformBreadcrumbs } = require('./src/utils/setup/transform-breadcrumbs.js');
-const { baseUrl } = require('./src/utils/base-url');
-const { saveAssetFiles, saveStaticFiles } = require('./src/utils/setup/save-asset-files');
+const { saveStaticFiles } = require('./src/utils/setup/save-asset-files');
 const { validateEnvVariables } = require('./src/utils/setup/validate-env-variables');
-const { getNestedValue } = require('./src/utils/get-nested-value');
-const { removeNestedValue } = require('./src/utils/remove-nested-value.js');
-const { getPageSlug } = require('./src/utils/get-page-slug');
-const { manifestMetadata, siteMetadata } = require('./src/utils/site-metadata');
-const { assertTrailingSlash } = require('./src/utils/assert-trailing-slash');
-const { constructPageIdPrefix } = require('./src/utils/setup/construct-page-id-prefix');
-const { manifestDocumentDatabase, stitchDocumentDatabase } = require('./src/init/DocumentDatabase.js');
+const { manifestMetadata } = require('./src/utils/site-metadata');
+const pipeline = promisify(stream.pipeline);
+const got = require(`got`);
+const { parser } = require(`stream-json/jsonl/Parser`);
+const { sourceNodes } = require(`./other-things-to-source`);
 
-// different types of references
-const PAGES = [];
+const decode = parser();
 
-// in-memory object with key/value = filename/document
-let RESOLVED_REF_DOC_MAPPING = {};
-
-const assets = new Map();
-
-let db;
-
-let isAssociatedProduct = false;
-const associatedReposInfo = {};
-
-// Creates node for RemoteMetadata, mostly used for Embedded Versions. If no associated products
-// or data are found, the node will be null
-const createRemoteMetadataNode = async ({ createNode, createNodeId, createContentDigest }) => {
-  // fetch associated child products
-  const productList = manifestMetadata?.associated_products || [];
-  await Promise.all(
-    productList.map(async (product) => {
-      associatedReposInfo[product.name] = await db.stitchInterface.fetchRepoBranches(product.name);
-    })
-  );
-  // check if product is associated child product
-  try {
-    const umbrellaProduct = await db.stitchInterface.getMetadata({
-      'associated_products.name': siteMetadata.project,
-    });
-    isAssociatedProduct = !!umbrellaProduct;
-  } catch (e) {
-    console.log('No umbrella product found. Not an associated product.');
-    isAssociatedProduct = false;
-  }
-
-  // get remote metadata for updated ToC in Atlas
-  try {
-    const filter = {
-      project: manifestMetadata.project,
-      branch: manifestMetadata.branch,
-    };
-    if (isAssociatedProduct || manifestMetadata?.associated_products?.length) {
-      filter['is_merged_toc'] = true;
-    }
-    const findOptions = {
-      sort: { build_id: -1 },
-    };
-    const remoteMetadata = await db.stitchInterface.getMetadata(filter, findOptions);
-
-    createNode({
-      children: [],
-      id: createNodeId('remoteMetadata'),
-      internal: {
-        contentDigest: createContentDigest(remoteMetadata),
-        type: 'RemoteMetadata',
-      },
-      parent: null,
-      remoteMetadata: remoteMetadata,
-    });
-  } catch (e) {
-    console.error('Error while fetching metadata from Atlas, falling back to manifest metadata');
-    console.error(e);
-  }
-};
-
-const atlasAdminChangelogS3Prefix = 'https://mongodb-mms-prod-build-server.s3.amazonaws.com/openapi/changelog';
-
-const fetchChangelogData = async (runId, versions) => {
-  try {
-    /* Using metadata runId, fetch OpenAPI Changelog full change list */
-    const changelogResp = await fetch(`${atlasAdminChangelogS3Prefix}/${runId}/changelog.json`);
-    const changelog = await changelogResp.json();
-
-    /* Aggregate all Resources in changelog for frontend filter */
-    const resourcesListSet = new Set();
-    changelog.forEach((release) =>
-      release.paths.forEach(({ httpMethod, path }) => resourcesListSet.add(`${httpMethod} ${path}`))
-    );
-    const changelogResourcesList = Array.from(resourcesListSet);
-
-    /* Fetch most recent Resource Versions' diff */
-    const mostRecentResourceVersions = versions.slice(-2);
-    const mostRecentDiffLabel = mostRecentResourceVersions.join('_');
-    const mostRecentDiffResp = await fetch(`${atlasAdminChangelogS3Prefix}/${runId}/${mostRecentDiffLabel}.json`);
-    const mostRecentDiffData = await mostRecentDiffResp.json();
-
-    return {
-      changelog,
-      changelogResourcesList,
-      mostRecentDiff: {
-        mostRecentDiffLabel,
-        mostRecentDiffData,
-      },
-    };
-  } catch (error) {
-    console.warn('Changelog error: Most recent runId not successful. Using last successful runId to build Changelog.');
-    throw error;
-  }
-};
-
-/* Creates node for ChangelogData, cuyrrently only used for OpenAPI Changelog in cloud-docs. */
-const createOpenAPIChangelogNode = async ({ createNode, createNodeId, createContentDigest }) => {
-  try {
-    /* Fetch OpenAPI Changelog metadata */
-    const indexResp = await fetch(`${atlasAdminChangelogS3Prefix}/prod.json`);
-    const index = await indexResp.json();
-
-    const { runId, versions } = index;
-
-    if (!runId || typeof runId !== 'string')
-      throw new Error('OpenAPI Changelog Error: `runId` not available in S3 index.json!');
-
-    let changelogData = {
-      index,
-    };
-    try {
-      const receivedChangelogData = await fetchChangelogData(runId, versions);
-      changelogData = { ...changelogData, ...receivedChangelogData };
-      await db.stitchInterface.updateOAChangelogMetadata(index);
-    } catch (error) {
-      /* If any error occurs, fetch last successful metadata and build changelog node */
-      const lastSuccessfulIndex = await db.stitchInterface.fetchDocument(
-        'openapi_changelog',
-        'atlas_admin_metadata',
-        {}
-      );
-      const { runId: lastRunId, versions: lastVersions } = lastSuccessfulIndex;
-      const receivedChangelogData = fetchChangelogData(lastRunId, lastVersions);
-      changelogData = { index: lastSuccessfulIndex, ...receivedChangelogData };
-    }
-
-    /* Create Node for useStaticQuery with all Changelog data */
-    createNode({
-      children: [],
-      id: createNodeId('changelogData'),
-      internal: {
-        contentDigest: createContentDigest(changelogData),
-        type: 'ChangelogData',
-      },
-      parent: null,
-      changelogData: changelogData,
-    });
-  } catch (e) {
-    console.error('Error while fetching OpenAPI Changelog data from S3');
-    console.error(e);
-
-    /* Create empty Node for useStaticQuery to ensure successful build */
-    createNode({
-      children: [],
-      id: createNodeId('changelogData'),
-      internal: {
-        contentDigest: createContentDigest({}),
-        type: 'ChangelogData',
-      },
-      parent: null,
-      changelogData: {},
-    });
-  }
-};
-
-exports.sourceNodes = async ({ actions, createContentDigest, createNodeId }) => {
-  let hasOpenAPIChangelog = false;
-  const { createNode } = actions;
-
+exports.onPreInit = () => {
   // setup and validate env variables
   const envResults = validateEnvVariables(manifestMetadata);
   if (envResults.error) {
     throw Error(envResults.message);
   }
-
-  // wait to connect to stitch
-
-  if (siteMetadata.manifestPath) {
-    console.log('Loading documents from manifest');
-    db = manifestDocumentDatabase;
-  } else {
-    console.log('Loading documents from stitch');
-    db = stitchDocumentDatabase;
-  }
-
-  await db.connect();
-
-  const documents = await db.getDocuments();
-
-  if (documents.length === 0) {
-    console.error(
-      'Snooty could not find AST entries for the',
-      siteMetadata.parserBranch,
-      'branch of',
-      siteMetadata.project,
-      'within',
-      siteMetadata.database
-    );
-    process.exit(1);
-  }
-  const pageIdPrefix = constructPageIdPrefix(siteMetadata);
-  documents.forEach((doc) => {
-    const { page_id, ...rest } = doc;
-    RESOLVED_REF_DOC_MAPPING[page_id.replace(`${pageIdPrefix}/`, '')] = rest;
-  });
-
-  // Identify page documents and parse each document for images
-  Object.entries(RESOLVED_REF_DOC_MAPPING).forEach(([key, val]) => {
-    const pageNode = getNestedValue(['ast', 'children'], val);
-    const filename = getNestedValue(['filename'], val) || '';
-
-    // Parse each document before pages are created via createPage
-    // to remove all positions fields as it is only used in the parser for logging
-    removeNestedValue('position', 'children', [val?.ast]);
-
-    if (pageNode) {
-      val.static_assets.forEach((asset) => {
-        const checksum = asset.checksum;
-        if (assets.has(checksum)) {
-          assets.set(checksum, new Set([...assets.get(checksum), asset.key]));
-        } else {
-          assets.set(checksum, new Set([asset.key]));
-        }
-      });
-    }
-
-    if (filename.endsWith('.txt') && !manifestMetadata.openapi_pages?.[key]) {
-      PAGES.push(key);
-    }
-    if (val?.ast?.options?.template === 'changelog') hasOpenAPIChangelog = true;
-  });
-
-  // Get all MongoDB products for the sidenav
-  const products = await db.fetchAllProducts(siteMetadata.database);
-  products.forEach((product) => {
-    const url = baseUrl(product.baseUrl + product.slug);
-
-    createNode({
-      children: [],
-      id: createNodeId(`Product-${product.title}`),
-      internal: {
-        contentDigest: createContentDigest(product),
-        type: 'Product',
-      },
-      parent: null,
-      title: product.title,
-      url,
-    });
-  });
-
-  await createRemoteMetadataNode({ createNode, createNodeId, createContentDigest });
-  if (siteMetadata.project === 'cloud-docs' && hasOpenAPIChangelog)
-    await createOpenAPIChangelogNode({ createNode, createNodeId, createContentDigest });
-
-  await saveAssetFiles(assets, db);
-  const { static_files: staticFiles, ...metadataMinusStatic } = await db.getMetadata();
-
-  const { parentPaths, slugToTitle } = metadataMinusStatic;
-  if (parentPaths) {
-    transformBreadcrumbs(parentPaths, slugToTitle);
-  }
-
-  //Save files in the static_files field of metadata document, including intersphinx inventories
-  if (staticFiles) {
-    await saveStaticFiles(staticFiles);
-  }
-
-  createNode({
-    children: [],
-    id: createNodeId('metadata'),
-    internal: {
-      contentDigest: createContentDigest(metadataMinusStatic),
-      type: 'SnootyMetadata',
-    },
-    parent: null,
-    metadata: metadataMinusStatic,
-  });
 };
 
-exports.createPages = async ({ actions }) => {
-  const { createPage } = actions;
+exports.createSchemaCustomization = async ({ actions }) => {
+  const { createTypes } = actions;
+  const typeDefs = `
+    type Page implements Node @dontInfer {
+      page_id: String
+      pagePath: String
+      ast: JSON!
+    }
 
-  let repoBranches = null;
+    type SnootyMetadata implements Node @dontInfer {
+      metadata: JSON
+    }
+
+    type RemoteMetadata implements Node @dontInfer {
+      remoteMetadata: JSON
+    }
+
+    type ChangelogData implements Node @dontInfer {
+      changelogData: JSON
+    }
+  `;
+  createTypes(typeDefs);
+};
+
+let pageCount = 0;
+const fileWritePromises = [];
+const saveFile = async (file, data) => {
+  await fs.mkdir(path.join('static', path.dirname(file)), {
+    recursive: true,
+  });
+  await fs.writeFile(path.join('static', file), data, 'binary');
+  console.log(`wrote asset`, file);
+};
+exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache }) => {
+  let hasOpenAPIChangelog = false;
+  const { createNode } = actions;
+  const lastFetched = await cache.get(`lastFetched`);
+  console.log({ lastFetched });
+  const httpStream = got.stream(`http://localhost:3000/projects/docs/DOCS-16126-5.0.18-release-notes/documents`);
   try {
-    const repoInfo = await db.stitchInterface.fetchRepoBranches();
-    let errMsg;
+    decode.on(`data`, async (_entry) => {
+      const entry = _entry.value;
+      // if (![`page`, `metadata`, `timestamp`].includes(entry.type)) {
+      // console.log(entry);
+      // }
 
-    if (!repoInfo) {
-      errMsg = `Repo data for ${siteMetadata.project} could not be found.`;
-    }
-
-    // We should expect the number of branches for a docs repo to be 1 or more.
-    if (!repoInfo.branches?.length) {
-      errMsg = `No version information found for ${siteMetadata.project}`;
-    }
-
-    if (errMsg) {
-      throw errMsg;
-    }
-
-    // Handle inconsistent env names. Default to 'dotcomprd' when possible since this is what we will most likely use.
-    // dotcom environments seem to be consistent.
-    let envKey = siteMetadata.snootyEnv;
-    if (!envKey || envKey === 'development') {
-      envKey = 'dotcomprd';
-    } else if (envKey === 'production') {
-      envKey = 'prd';
-    } else if (envKey === 'staging') {
-      envKey = 'stg';
-    }
-
-    // We're overfetching data here. We only need branches and prefix at the least
-    repoBranches = {
-      branches: repoInfo.branches,
-      siteBasePrefix: repoInfo.prefix[envKey],
-    };
-
-    if (repoInfo.groups?.length > 0) {
-      repoBranches.groups = repoInfo.groups;
-    }
-  } catch (err) {
-    console.error(err);
-    throw err;
-  }
-
-  return new Promise((resolve, reject) => {
-    PAGES.forEach((page) => {
-      const pageNodes = RESOLVED_REF_DOC_MAPPING[page]?.ast;
-      const slug = getPageSlug(page);
-
-      // TODO: Gatsby v4 will enable code splitting automatically. Delete duplicate component, add conditional for consistent-nav UnifiedFooter
-      const isFullBuild =
-        siteMetadata.snootyEnv !== 'production' || process.env.PREVIEW_BUILD_ENABLED?.toUpperCase() !== 'TRUE';
-      const mainComponentRelativePath = `./src/components/DocumentBody${isFullBuild ? '' : 'Preview'}.js`;
-
-      if (RESOLVED_REF_DOC_MAPPING[page] && Object.keys(RESOLVED_REF_DOC_MAPPING[page]).length > 0) {
-        createPage({
-          path: assertTrailingSlash(slug),
-          component: path.resolve(__dirname, mainComponentRelativePath),
-          context: {
-            slug,
-            repoBranches,
-            associatedReposInfo,
-            isAssociatedProduct,
-            template: pageNodes?.options?.template,
-            page: pageNodes,
-          },
+      if (entry.type === `timestamp`) {
+        cache.set(`lastFetched`, entry.data);
+      } else if (entry.type === `asset`) {
+        console.log(`asset`, entry.data.filenames);
+        entry.data.filenames.forEach((filePath) => {
+          fileWritePromises.push(saveFile(filePath, Buffer.from(entry.data.assetData, `base64`)));
         });
+      } else if (entry.type === `metadata`) {
+        // Create metadata node.
+        const { static_files: staticFiles, ...metadataMinusStatic } = entry.data;
+
+        const { parentPaths, slugToTitle } = metadataMinusStatic;
+        if (parentPaths) {
+          transformBreadcrumbs(parentPaths, slugToTitle);
+        }
+
+        // Save files in the static_files field of metadata document, including intersphinx inventories.
+        if (staticFiles) {
+          await saveStaticFiles(staticFiles);
+        }
+
+        createNode({
+          children: [],
+          id: createNodeId('metadata'),
+          internal: {
+            contentDigest: createContentDigest(metadataMinusStatic),
+            type: 'SnootyMetadata',
+          },
+          parent: null,
+          metadata: metadataMinusStatic,
+        });
+      } else if (entry.type === `page`) {
+        if (entry.data?.ast?.options?.template === 'changelog') hasOpenAPIChangelog = true;
+        pageCount += 1;
+        if (pageCount % 100 === 0) {
+          console.log({ pageCount });
+        }
+        const { source, ...page } = entry.data;
+        // console.log({page})
+        page.id = createNodeId(page.page_id);
+        page.internal = {
+          type: `Page`,
+          contentDigest: createContentDigest(page),
+        };
+
+        createNode(page);
       }
     });
 
-    resolve();
-  });
+    console.time(`source updates`);
+    await pipeline(httpStream, decode);
+    console.timeEnd(`source updates`);
+
+    // Wait for HTTP connection to close.
+  } catch (error) {
+    console.log(`stream-changes error`, { error });
+    throw error;
+  }
+
+  // Wait for all assets to be written.
+  await Promise.all(fileWritePromises);
+  console.time(`old source nodes`);
+  await sourceNodes({ hasOpenAPIChangelog, createNode, createContentDigest, createNodeId });
+  console.timeEnd(`old source nodes`);
 };
 
 // Prevent errors when running gatsby build caused by browser packages run in a node environment.
@@ -393,24 +166,38 @@ exports.onCreateWebpackConfig = ({ stage, loaders, plugins, actions }) => {
   });
 };
 
-// Remove type inference, as our schema is too ambiguous for this to be useful.
-// https://www.gatsbyjs.com/docs/scaling-issues/#switch-off-type-inference-for-sitepagecontext
-exports.createSchemaCustomization = ({ actions }) => {
-  actions.createTypes(`
-    type SitePage implements Node @dontInfer {
-      path: String!
-    }
-
-    type SnootyMetadata implements Node @dontInfer {
-      metadata: JSON!
-    }
-
-    type RemoteMetadata implements Node @dontInfer {
-      remoteMetadata: JSON
-    }
-
-    type ChangelogData implements Node @dontInfer {
-      changelogData: JSON
+exports.createPages = async ({ actions, graphql }) => {
+  const { createPage } = actions;
+  const templatePath = path.resolve(`./src/components/DocumentBody.js`);
+  const result = await graphql(`
+    query {
+      allPage {
+        totalCount
+        nodes {
+          id
+          page_id
+        }
+      }
     }
   `);
+
+  result.data.allPage.nodes.forEach((node) => {
+    const slug = node.page_id === `index` ? `/` : node.page_id;
+    createPage({
+      path: slug,
+      component: templatePath,
+      context: {
+        id: node.id,
+        slug,
+        repoBranches: {
+          branches: [`main`],
+          siteBasePrefix: `/`,
+        },
+        associatedReposInfo: null,
+        isAssociatedProduct: null,
+        // template: pageNodes?.options?.template,
+        // page: pageNodes,
+      },
+    });
+  });
 };
