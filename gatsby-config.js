@@ -13,6 +13,7 @@ console.log('PATH PREFIX', pathPrefix);
 console.log({ siteMetadata });
 module.exports = {
   plugins: [
+    `@gatsby-cloud-pkg/gatsby-plugin-preview`,
     'gatsby-plugin-emotion',
     'gatsby-plugin-gatsby-cloud',
     // {
