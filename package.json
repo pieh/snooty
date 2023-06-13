@@ -57,6 +57,7 @@
     "@emotion/eslint-plugin": "^11.7.0",
     "@emotion/react": "^11.7.1",
     "@emotion/styled": "^11.0.0",
+    "@gatsby-cloud-pkg/gatsby-plugin-preview": "^1.0.19",
     "@leafygreen-ui/badge": "^5.0.1",
     "@leafygreen-ui/banner": "^4.0.0",
     "@leafygreen-ui/box": "^3.0.6",
