@@ -14,6 +14,7 @@ console.log({ siteMetadata });
 module.exports = {
   plugins: [
     'gatsby-plugin-emotion',
+    'gatsby-plugin-gatsby-cloud',
     // {
     // resolve: 'gatsby-plugin-layout',
     // options: {

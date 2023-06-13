@@ -100,6 +100,7 @@
     "gatsby": "^5.0.0",
     "gatsby-plugin-canonical-urls": "^5.0.0",
     "gatsby-plugin-emotion": "^8.0.0",
+    "gatsby-plugin-gatsby-cloud": "^5.10.0",
     "gatsby-plugin-google-tagmanager": "^5.0.0",
     "gatsby-plugin-layout": "^4.7.0",
     "gatsby-plugin-sitemap": "^6.0.0",
