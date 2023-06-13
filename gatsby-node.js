@@ -62,9 +62,7 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
   const { createNode } = actions;
   const lastFetched = await cache.get(`lastFetched`);
   console.log({ lastFetched });
-  const httpStream = got.stream(
-    `https://snooty-data-api.mongodb.com/projects/docs/DOCS-15979-new-auto-merge-shell-helpers/documents`
-  );
+  const httpStream = got.stream(`https://snooty-data-api.mongodb.com/projects/docs/DOP-3765/documents`);
   try {
     decode.on(`data`, async (_entry) => {
       const entry = _entry.value;
