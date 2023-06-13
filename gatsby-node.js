@@ -54,12 +54,17 @@ const saveFile = async (file, data) => {
   await fs.writeFile(path.join('static', file), data, 'binary');
   console.log(`wrote asset`, file);
 };
-exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache }) => {
+exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache, webhookBody }) => {
+  console.log('webhookBody');
+  console.log(webhookBody);
+
   let hasOpenAPIChangelog = false;
   const { createNode } = actions;
   const lastFetched = await cache.get(`lastFetched`);
   console.log({ lastFetched });
-  const httpStream = got.stream(`http://localhost:3000/projects/docs/DOCS-16126-5.0.18-release-notes/documents`);
+  const httpStream = got.stream(
+    `https://snooty-data-api.mongodb.com/projects/docs/DOCS-15979-new-auto-merge-shell-helpers/documents`
+  );
   try {
     decode.on(`data`, async (_entry) => {
       const entry = _entry.value;
