@@ -16,13 +16,14 @@ module.exports = {
     `@gatsby-cloud-pkg/gatsby-plugin-preview`,
     'gatsby-plugin-emotion',
     'gatsby-plugin-gatsby-cloud',
+    'gatsby-source-snooty',
     // {
     // resolve: 'gatsby-plugin-layout',
     // options: {
     // component: require.resolve(layoutComponentRelativePath),
     // },
     // },
-    'gatsby-plugin-sitemap',
+    // 'gatsby-plugin-sitemap',
     {
       resolve: 'gatsby-plugin-canonical-urls',
       options: {
