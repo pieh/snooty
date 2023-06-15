@@ -76,7 +76,6 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
       console.log(`decode ended`);
     });
     decode.on(`data`, async (_entry) => {
-      console.log('data received');
       const entry = _entry.value;
       // if (![`page`, `metadata`, `timestamp`].includes(entry.type)) {
       // console.log(entry);
