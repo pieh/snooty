@@ -11,8 +11,6 @@ const got = require(`got`);
 const { parser } = require(`stream-json/jsonl/Parser`);
 const { sourceNodes } = require(`../../other-things-to-source`);
 
-const decode = parser();
-
 exports.onPreInit = () => {
   // setup and validate env variables
   const envResults = validateEnvVariables(manifestMetadata);
@@ -45,8 +43,6 @@ exports.createSchemaCustomization = async ({ actions }) => {
   createTypes(typeDefs);
 };
 
-let pageCount = 0;
-const fileWritePromises = [];
 const saveFile = async (file, data) => {
   await fs.mkdir(path.join('static', path.dirname(file)), {
     recursive: true,
@@ -58,6 +54,8 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
   console.log('webhookBody');
   console.log(webhookBody);
 
+  let pageCount = 0;
+  const fileWritePromises = [];
   let hasOpenAPIChangelog = false;
   const { createNode } = actions;
   const lastFetched = await cache.get(`lastFetched`);
@@ -65,9 +63,20 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
   const url = lastFetched
     ? `https://snooty-data-api.mongodb.com/projects/docs/DOP-3765/documents/updated/${lastFetched}`
     : `https://snooty-data-api.mongodb.com/projects/docs/DOP-3765/documents`;
+  console.log(url);
   const httpStream = got.stream(url);
   try {
+    const decode = parser();
+    console.log('trying its best');
+
+    httpStream.on(`end`, () => {
+      console.log('httpStream ended');
+    });
+    decode.on(`end`, () => {
+      console.log(`decode ended`);
+    });
     decode.on(`data`, async (_entry) => {
+      console.log('data received');
       const entry = _entry.value;
       // if (![`page`, `metadata`, `timestamp`].includes(entry.type)) {
       // console.log(entry);
@@ -81,6 +90,7 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
           fileWritePromises.push(saveFile(filePath, Buffer.from(entry.data.assetData, `base64`)));
         });
       } else if (entry.type === `metadata`) {
+        console.log(`found metadata`);
         // Create metadata node.
         const { static_files: staticFiles, ...metadataMinusStatic } = entry.data;
 
@@ -175,6 +185,7 @@ exports.onCreateWebpackConfig = ({ stage, loaders, plugins, actions }) => {
 exports.createPages = async ({ actions, graphql }) => {
   const { createPage } = actions;
   const templatePath = path.resolve(`./src/components/DocumentBody.js`);
+  console.time(`query createPages`);
   const result = await graphql(`
     query {
       allPage {
@@ -186,6 +197,7 @@ exports.createPages = async ({ actions, graphql }) => {
       }
     }
   `);
+  console.timeEnd(`query createPages`);
 
   result.data.allPage.nodes.forEach((node) => {
     const slug = node.page_id === `index` ? `/` : node.page_id;
