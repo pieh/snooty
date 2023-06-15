@@ -58,7 +58,8 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
   const fileWritePromises = [];
   let hasOpenAPIChangelog = false;
   const { createNode } = actions;
-  const lastFetched = await cache.get(`lastFetched`);
+  const cacheKey = `lastFetched-p${webhookBody?.project}-b${webhookBody?.branch}`;
+  const lastFetched = await cache.get(cacheKey);
   console.log({ lastFetched });
   const updatedSlug = lastFetched ? `/updated/${lastFetched}` : '';
   const url = `https://snooty-data-api.mongodb.com/projects/${webhookBody?.project}/${webhookBody?.branch}/documents${updatedSlug}`;
@@ -82,7 +83,7 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
       // }
 
       if (entry.type === `timestamp`) {
-        cache.set(`lastFetched`, entry.data);
+        cache.set(cacheKey, entry.data);
       } else if (entry.type === `asset`) {
         console.log(`asset`, entry.data.filenames);
         entry.data.filenames.forEach((filePath) => {
