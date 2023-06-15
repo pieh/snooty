@@ -60,9 +60,8 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
   const { createNode } = actions;
   const lastFetched = await cache.get(`lastFetched`);
   console.log({ lastFetched });
-  const url = lastFetched
-    ? `https://snooty-data-api.mongodb.com/projects/docs/DOP-3765/documents/updated/${lastFetched}`
-    : `https://snooty-data-api.mongodb.com/projects/docs/DOP-3765/documents`;
+  const updatedSlug = lastFetched ? `/updated/${lastFetched}` : '';
+  const url = `https://snooty-data-api.mongodb.com/projects/${webhookBody?.project}/${webhookBody?.branch}/documents${updatedSlug}`;
   console.log(url);
   const httpStream = got.stream(url);
   try {
