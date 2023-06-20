@@ -5,7 +5,9 @@ const fs = require('fs').promises;
 const { transformBreadcrumbs } = require('../../src/utils/setup/transform-breadcrumbs.js');
 const { saveStaticFiles } = require('../../src/utils/setup/save-asset-files');
 const { validateEnvVariables } = require('../../src/utils/setup/validate-env-variables');
-const { manifestMetadata } = require('../../src/utils/site-metadata');
+const { manifestMetadata, siteMetadata } = require('../../src/utils/site-metadata');
+const { getNestedValue } = require('./src/utils/get-nested-value');
+// const { constructPageIdPrefix } = require('../../src/utils/setup/construct-page-id-prefix');
 const pipeline = promisify(stream.pipeline);
 const got = require(`got`);
 const { parser } = require(`stream-json/jsonl/Parser`);
@@ -18,6 +20,10 @@ exports.onPreInit = () => {
     throw Error(envResults.message);
   }
 };
+
+let isAssociatedProduct = false;
+let associatedReposInfo = {};
+let db;
 
 exports.createSchemaCustomization = async ({ actions }) => {
   const { createTypes } = actions;
@@ -48,25 +54,31 @@ const saveFile = async (file, data) => {
     recursive: true,
   });
   await fs.writeFile(path.join('static', file), data, 'binary');
-  console.log(`wrote asset`, file);
 };
+
 exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache, webhookBody }) => {
   console.log('webhookBody');
   console.log(webhookBody);
 
-  let pageCount = 0;
-  const fileWritePromises = [];
   let hasOpenAPIChangelog = false;
   const { createNode } = actions;
-  const cacheKey = `lastFetched-p${webhookBody?.project}-b${webhookBody?.branch}`;
+
+  let pageCount = 0;
+  const fileWritePromises = [];
+
+  const project = webhookBody?.project;
+  const branch = webhookBody?.branch;
+
+  const cacheKey = `lastFetched-p${project}-b${branch}`;
   const lastFetched = await cache.get(cacheKey);
   console.log({ lastFetched });
   const updatedSlug = lastFetched ? `/updated/${lastFetched}` : '';
-  const url = `https://snooty-data-api.mongodb.com/projects/${webhookBody?.project}/${webhookBody?.branch}/documents${updatedSlug}`;
+  const url = `https://snooty-data-api.mongodb.com/projects/${project}/${branch}/documents${updatedSlug}`;
   console.log(url);
   const httpStream = got.stream(url);
   try {
     const decode = parser();
+    // const pageIdPrefix = `${project}/docsworker-xlarge/${branch}`;
     console.log('trying its best');
 
     httpStream.on(`end`, () => {
@@ -84,7 +96,6 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
       if (entry.type === `timestamp`) {
         cache.set(cacheKey, entry.data);
       } else if (entry.type === `asset`) {
-        console.log(`asset`, entry.data.filenames);
         entry.data.filenames.forEach((filePath) => {
           fileWritePromises.push(saveFile(filePath, Buffer.from(entry.data.assetData, `base64`)));
         });
@@ -120,14 +131,38 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
           console.log({ pageCount });
         }
         const { source, ...page } = entry.data;
-        // console.log({page})
-        page.id = createNodeId(page.page_id);
-        page.internal = {
-          type: `Page`,
-          contentDigest: createContentDigest(page),
-        };
 
-        createNode(page);
+        const filename = getNestedValue(['filename'], page) || '';
+        // The old gatsby sourceNodes has this code — I'm not sure it actually
+        // is a concern (I couldn't find any page documents that didn't end in .txt)
+        // but Chesterton's Fence and all.
+        if (filename.endsWith('.txt')) {
+          // Comment this out for now as this would only work in local development
+          // const page_id = page.page_id.replace(`${pageIdPrefix}/`, '');
+          const page_id = page.page_id;
+          // page.page_id = page_id;
+          if (pageCount % 100 === 0) {
+            console.log({ pageCount, page_id });
+          }
+          page.id = createNodeId(page_id);
+          page.internal = {
+            type: `Page`,
+            contentDigest: createContentDigest(page),
+          };
+
+          const pagePathNode = {
+            id: page.id + `/path`,
+            page_id: page_id,
+            pageNodeId: page.id,
+            internal: {
+              type: `PagePath`,
+              contentDigest: page.internal.contentDigest,
+            },
+          };
+
+          createNode(page);
+          createNode(pagePathNode);
+        }
       }
     });
 
@@ -143,8 +178,18 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
 
   // Wait for all assets to be written.
   await Promise.all(fileWritePromises);
+
+  // Source old nodes.
   console.time(`old source nodes`);
-  await sourceNodes({ hasOpenAPIChangelog, createNode, createContentDigest, createNodeId });
+  const { _db, _isAssociatedProduct, _associatedReposInfo } = await sourceNodes({
+    hasOpenAPIChangelog,
+    createNode,
+    createContentDigest,
+    createNodeId,
+  });
+  db = _db;
+  isAssociatedProduct = _isAssociatedProduct;
+  associatedReposInfo = _associatedReposInfo;
   console.timeEnd(`old source nodes`);
 };
 
@@ -184,34 +229,72 @@ exports.onCreateWebpackConfig = ({ stage, loaders, plugins, actions }) => {
 exports.createPages = async ({ actions, graphql }) => {
   const { createPage } = actions;
   const templatePath = path.resolve(`./src/components/DocumentBody.js`);
-  console.time(`query createPages`);
   const result = await graphql(`
     query {
-      allPage {
+      allPagePath {
         totalCount
         nodes {
-          id
+          pageNodeId
           page_id
         }
       }
     }
   `);
-  console.timeEnd(`query createPages`);
 
-  result.data.allPage.nodes.forEach((node) => {
+  let repoBranches = null;
+  try {
+    const repoInfo = await db.stitchInterface.fetchRepoBranches();
+    let errMsg;
+
+    if (!repoInfo) {
+      errMsg = `Repo data for ${siteMetadata.project} could not be found.`;
+    }
+
+    // We should expect the number of branches for a docs repo to be 1 or more.
+    if (!repoInfo.branches?.length) {
+      errMsg = `No version information found for ${siteMetadata.project}`;
+    }
+
+    if (errMsg) {
+      throw errMsg;
+    }
+
+    // Handle inconsistent env names. Default to 'dotcomprd' when possible since this is what we will most likely use.
+    // dotcom environments seem to be consistent.
+    let envKey = siteMetadata.snootyEnv;
+    if (!envKey || envKey === 'development') {
+      envKey = 'dotcomprd';
+    } else if (envKey === 'production') {
+      envKey = 'prd';
+    } else if (envKey === 'staging') {
+      envKey = 'stg';
+    }
+
+    // We're overfetching data here. We only need branches and prefix at the least
+    repoBranches = {
+      branches: repoInfo.branches,
+      siteBasePrefix: repoInfo.prefix[envKey],
+    };
+
+    if (repoInfo.groups?.length > 0) {
+      repoBranches.groups = repoInfo.groups;
+    }
+  } catch (err) {
+    console.error(err);
+    throw err;
+  }
+
+  result.data.allPagePath.nodes.forEach((node) => {
     const slug = node.page_id === `index` ? `/` : node.page_id;
     createPage({
       path: slug,
       component: templatePath,
       context: {
-        id: node.id,
+        id: node.pageNodeId,
         slug,
-        repoBranches: {
-          branches: [`main`],
-          siteBasePrefix: `/`,
-        },
-        associatedReposInfo: null,
-        isAssociatedProduct: null,
+        repoBranches,
+        associatedReposInfo,
+        isAssociatedProduct,
         // template: pageNodes?.options?.template,
         // page: pageNodes,
       },
