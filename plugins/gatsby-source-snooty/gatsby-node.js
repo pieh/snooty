@@ -34,6 +34,11 @@ exports.createSchemaCustomization = async ({ actions }) => {
       ast: JSON!
     }
 
+    type PagePath implements Node @dontInfer {
+      page_id: String
+      pageNodeId: String
+    }
+
     type SnootyMetadata implements Node @dontInfer {
       metadata: JSON
     }
