@@ -122,8 +122,11 @@ exports.sourceNodes = async ({ actions, createNodeId, createContentDigest, cache
         console.log(`found metadata`);
         // Create metadata node.
         const { static_files: staticFiles, ...metadataMinusStatic } = entry.data;
+        const { project, branch } = entry.data;
 
         const { parentPaths, slugToTitle } = metadataMinusStatic;
+        global.siteMetadata = {};
+        global.siteMetadata.prefix = `/${project}/docsworker-xlarge/${branch}`;
         if (parentPaths) {
           transformBreadcrumbs(parentPaths, slugToTitle);
         }

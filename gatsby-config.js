@@ -1,7 +1,8 @@
-const { generatePathPrefix } = require('./src/utils/generate-path-prefix');
+// const { generatePathPrefix } = require('./src/utils/generate-path-prefix');
 const { siteMetadata } = require('./src/utils/site-metadata');
 
-const pathPrefix = generatePathPrefix(siteMetadata);
+// const pathPrefix = generatePathPrefix(siteMetadata);
+const pathPrefix = global.siteMetadata.prefix;
 
 console.log('PATH PREFIX', pathPrefix);
 
