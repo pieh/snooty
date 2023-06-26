@@ -21,6 +21,13 @@ exports.onPreInit = () => {
   }
 };
 
+exports.onPreBuild = () => {
+  let buildId = global.__GATSBY?.buildId;
+  console.log({ buildId });
+  buildId = process.env.GATSBY_NODE_GLOBALS['buildId'];
+  console.log({ buildId });
+};
+
 let isAssociatedProduct = false;
 let associatedReposInfo = {};
 let db;
