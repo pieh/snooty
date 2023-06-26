@@ -24,7 +24,14 @@ exports.onPreInit = () => {
 exports.onPreBuild = () => {
   let buildId = global.__GATSBY?.buildId;
   console.log({ buildId });
-  buildId = process.env.GATSBY_NODE_GLOBALS['buildId'];
+  buildId = process.env.GATSBY_NODE_GLOBALS?.['buildId'];
+  console.log({ buildId });
+};
+
+exports.onPostBuild = () => {
+  let buildId = global.__GATSBY?.buildId;
+  console.log({ buildId });
+  buildId = process.env.GATSBY_NODE_GLOBALS?.['buildId'];
   console.log({ buildId });
 };
 
