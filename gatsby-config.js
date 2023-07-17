@@ -31,4 +31,7 @@ module.exports = {
   plugins,
   pathPrefix,
   siteMetadata,
+  flags: {
+    PARALLEL_QUERY_RUNNING: true,
+  },
 };
